@@ -7,6 +7,7 @@ import base64
 from PIL import Image
 import io
 import numpy as np
+import time
 from model_handler import ModelHandler
 
 def init_context(context):
@@ -17,6 +18,7 @@ def init_context(context):
 
 def handler(context, event):
     context.logger.info("call handler")
+    start = time.perf_counter()
     data = event.body
     buf = io.BytesIO(base64.b64decode(data["image"]))
     image = Image.open(buf)
@@ -93,6 +95,9 @@ def handler(context, event):
     except Exception as e:
         print(f"JSON dumps failed: {e}")
         raise
+
+    end = time.perf_counter()
+    print(f"Total processing time: {end - start:.2f} seconds")
 
     return context.Response(body=response_body,
         headers={},
