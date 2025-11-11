@@ -9,12 +9,12 @@ metadata:
     name: Segment Anything (Batch Mode)
     version: 2
     type: interactor
-    spec: |
-      min_pos_points: 0
-      min_neg_points: 0
-      startswith_box_optional: true
-      animated_gif: https://raw.githubusercontent.com/cvat-ai/cvat/develop/site/content/en/images/hrnet_example.gif
-      help_message: The interactor allows to get a mask of an object using at least one positive, and any negative points inside it. Batch Mode, considering large images, the batch mode extracts multiple crops of the image for enhanced segmentation
+    spec:
+    min_pos_points: 0
+    min_neg_points: 0
+    startswith_box_optional: true
+    animated_gif: https://raw.githubusercontent.com/cvat-ai/cvat/develop/site/content/en/images/hrnet_example.gif
+    help_message: The interactor allows to get a mask of an object using at least one positive, and any negative points inside it (Batch Mode)
 
 spec:
   description: Interactive object segmentation with Segment-Anything (Batch Mode)

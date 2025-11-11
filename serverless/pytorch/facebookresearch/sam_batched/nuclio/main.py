@@ -59,7 +59,6 @@ def handler(context, event):
         patch = image[y:y+patch_size, x:x+patch_size, :]
         batch.append(patch)
     batch = np.stack(batch, axis=0)
-    print(f"Created batch of patches with shape: {batch.shape}")
 
     # Feed batch to the encoder model to retrieve the features
     # features = context.user_data.model.handle(batch)

@@ -17,6 +17,6 @@ class ModelHandler:
         self.predictor = SamPredictor(sam_model)
 
     def handle(self, image):
-        self.predictor.set_image(np.array(image))
+        self.predictor.set_image(image)
         features = self.predictor.get_image_embedding()
         return features
