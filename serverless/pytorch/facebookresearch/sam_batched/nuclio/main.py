@@ -66,9 +66,35 @@ def handler(context, event):
 
     # features = context.user_data.model.handle(image)
 
-    return context.Response(body=json.dumps({
-            'blob': base64.b64encode(features.cpu().numpy() if features.is_cuda else features.numpy()).decode(),
-        }),
+    # Debug: Print feature info
+    print(f"Features shape: {features.shape}")
+    print(f"Features dtype: {features.dtype}")
+    print(f"Features device: {features.device}")
+    print(f"Features is_cuda: {features.is_cuda}")
+
+    # Convert features to numpy
+    features_numpy = features.cpu().numpy() if features.is_cuda else features.numpy()
+    print(f"Features numpy shape: {features_numpy.shape}")
+    print(f"Features numpy dtype: {features_numpy.dtype}")
+
+    # Encode to base64
+    features_encoded = base64.b64encode(features_numpy).decode()
+    print(f"Base64 encoded length: {len(features_encoded)}")
+
+    # Create response body
+    response_data = {'blob': features_encoded}
+    print(f"Response data keys: {response_data.keys()}")
+    print(f"Response data blob type: {type(response_data['blob'])}")
+
+    # Convert to JSON
+    try:
+        response_body = json.dumps(response_data)
+        print(f"JSON dumps successful, length: {len(response_body)}")
+    except Exception as e:
+        print(f"JSON dumps failed: {e}")
+        raise
+
+    return context.Response(body=response_body,
         headers={},
         content_type='application/json',
         status_code=200
