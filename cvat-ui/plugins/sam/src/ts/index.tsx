@@ -316,7 +316,7 @@ const samPlugin: SAMPlugin = {
         core: null,
         worker: new Worker(new URL('./inference.worker', import.meta.url)),
         jobs: {},
-        modelID: 'pth-facebookresearch-sam-vit-h',
+        modelID: 'pth-facebookresearch-sam-batched-vit-h',
         modelURL: '/assets/decoder.onnx',
         embeddings: new LRUCache({
             // float32 tensor [256, 64, 64] is 4 MB, max 128 MB
