@@ -253,8 +253,16 @@ const samPlugin: SAMPlugin = {
                                 // Select patch based on click position
                                 const patchSize = 1024;
                                 const firstClick = clicks.find(c => c.clickType === 1 || c.clickType === 2) || clicks[0];
-                                const clickX = firstClick.x;
-                                const clickY = firstClick.y;
+
+                                // If bbox is active, use its center to select the patch
+                                const bboxActive = obj_bbox.length > 0;
+                                let clickX = firstClick.x;
+                                let clickY = firstClick.y;
+
+                                if(bboxActive) {
+                                    clickX = (obj_bbox[0][0] + obj_bbox[1][0]) / 2;
+                                    clickY = (obj_bbox[0][1] + obj_bbox[1][1]) / 2;
+                                }
 
                                 const centerX = (imWidth - patchSize) / 2;
                                 const centerY = (imHeight - patchSize) / 2;
@@ -295,11 +303,11 @@ const samPlugin: SAMPlugin = {
                                 const patchTensor = new Tensor('float32', patchData, [1, 256, 64, 64]);
                                 console.log('[5] Extracted patch tensor shape: (1, 256, 64, 64)');
 
-                                // Adjust clicks to patch coordinate space
+                                // Adjust clicks to patch coordinate space and clamp to patch bounds
                                 const patchClicks = clicks.map(c => ({
                                     ...c,
-                                    x: c.x - patchOffsetX,
-                                    y: c.y - patchOffsetY
+                                    x: Math.max(0, Math.min(patchSize - 1, c.x - patchOffsetX)),
+                                    y: Math.max(0, Math.min(patchSize - 1, c.y - patchOffsetY))
                                 }));
                                 console.log('[6] Adjusted clicks to patch space:', patchClicks);
 
