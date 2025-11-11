@@ -4,6 +4,7 @@
 
 import numpy as np
 import torch
+from torch.cuda.amp import autocast
 from segment_anything import sam_model_registry, SamPredictor
 
 class ModelHandler:
@@ -34,15 +35,17 @@ class ModelHandler:
                 print(f"Processing item {idx + 1}/{len(batch_tensor)}")
                 item = item.unsqueeze(0)  # Add batch dimension: (1, C, H, W)
 
-                # Preprocess the single item
-                preprocessed_item = self.predictor.model.preprocess(item)
-                print("preprocess done, shape:", preprocessed_item.shape)
+                # Use autocast to handle mixed precision automatically
+                with autocast(dtype=torch.float16, cache_enabled=True, enabled=torch.cuda.is_available()):
+                    # Preprocess the single item
+                    preprocessed_item = self.predictor.model.preprocess(item)
+                    print("preprocess done, shape:", preprocessed_item.shape)
 
-                # Feed to image encoder
-                features = self.predictor.model.image_encoder(preprocessed_item)
+                    # Feed to image encoder
+                    features = self.predictor.model.image_encoder(preprocessed_item)
 
                 # Move to CPU immediately to free GPU memory
-                batch_features.append(features.cpu())
+                batch_features.append(features.float().cpu())  # Convert back to fp32 for CPU
 
                 # Clear GPU cache
                 del item, preprocessed_item, features
