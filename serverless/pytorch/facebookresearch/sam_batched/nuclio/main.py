@@ -64,7 +64,7 @@ def handler(context, event):
     print("handle")
     features = context.user_data.model.handle_batch(batch)
 
-    features = context.user_data.model.handle(image)
+    # features = context.user_data.model.handle(image)
 
     return context.Response(body=json.dumps({
             'blob': base64.b64encode(features.cpu().numpy() if features.is_cuda else features.numpy()).decode(),
