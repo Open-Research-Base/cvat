@@ -61,7 +61,8 @@ def handler(context, event):
     batch = np.stack(batch, axis=0)
 
     # Feed batch to the encoder model to retrieve the features
-    # features = context.user_data.model.handle(batch)
+    print("handle")
+    features = context.user_data.model.handle_batch(batch)
 
     features = context.user_data.model.handle(image)
 
