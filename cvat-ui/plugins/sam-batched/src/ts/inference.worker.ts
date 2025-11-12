@@ -70,29 +70,21 @@ if ((self as any).importScripts) {
                 error: 'Worker was not initialized',
             });
         } else if (e.data.action === WorkerAction.DECODE) {
-            try {
-                const t0 = (self as any).performance?.now?.() ?? Date.now();
-                decoder!.run((e.data.payload as DecodeBody)).then((results) => {
-                    const decodeMs = ((self as any).performance?.now?.() ?? Date.now()) - t0;
-
-                    postMessage({
-                        action: WorkerAction.DECODE,
-                        payload: {
-                            masks: results.masks,
-                            lowResMasks: results.low_res_masks,
-                            xtl: Number(results.xtl.data[0]),
-                            ytl: Number(results.ytl.data[0]),
-                            xbr: Number(results.xbr.data[0]),
-                            ybr: Number(results.ybr.data[0]),
-                            decodeMs,
-                        },
-                    });
-                }).catch((error: unknown) => {
-                    postMessage({ action: WorkerAction.DECODE, error: errorToMessage(error) });
+            decoder.run((e.data.payload as DecodeBody)).then((results) => {
+                postMessage({
+                    action: WorkerAction.DECODE,
+                    payload: {
+                        masks: results.masks,
+                        lowResMasks: results.low_res_masks,
+                        xtl: Number(results.xtl.data[0]),
+                        ytl: Number(results.ytl.data[0]),
+                        xbr: Number(results.xbr.data[0]),
+                        ybr: Number(results.ybr.data[0]),
+                    },
                 });
-            } catch (error) {
+            }).catch((error: unknown) => {
                 postMessage({ action: WorkerAction.DECODE, error: errorToMessage(error) });
-            }
+            });
         }
     };
 }

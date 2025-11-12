@@ -147,10 +147,6 @@ const samPlugin: SAMPlugin = {
 
                         if (model.id === plugin.data.modelID) {
                             if (!plugin.data.initialized) {
-                                // PERF: measure worker init (one-time)
-                                const initLabel = `[SAM] worker INIT`;
-                                console.time(initLabel);
-
                                 samPlugin.data.worker.postMessage({
                                     action: WorkerAction.INIT,
                                     payload: {
@@ -166,11 +162,9 @@ const samPlugin: SAMPlugin = {
                                     }
 
                                     if (!e.data.error) {
-                                        console.timeEnd(initLabel);
                                         samPlugin.data.initialized = true;
                                         resolvePromise();
                                     } else {
-                                        console.timeEnd(initLabel);
                                         reject(new Error(`SAM worker was not initialized. ${e.data.error}`));
                                     }
                                 };
@@ -204,15 +198,6 @@ const samPlugin: SAMPlugin = {
                             return;
                         }
 
-                        // PERF: label set for this frame
-                        const L = {
-                            total: `[SAM] leave total f${frame}`,
-                            b64: `[SAM] b64→tensor f${frame}`,
-                            feeds: `[SAM] feeds(modelData) f${frame}`,
-                            worker: `[SAM] worker decode f${frame}`,
-                        };
-                        console.time(L.total);
-
                         const job = Object.values(plugin.data.jobs).find((_job) => (
                             _job.taskId === taskID && frame >= _job.startFrame && frame <= _job.stopFrame
                         )) as Job;
@@ -221,23 +206,25 @@ const samPlugin: SAMPlugin = {
                             throw new Error('Could not find a job corresponding to the request');
                         }
 
-                        plugin.data.jobs = { [job.id]: job };
+                        plugin.data.jobs = {
+                            // we do not need to store old job instances
+                            [job.id]: job,
+                        };
 
                         job.frames.get(frame)
                             .then(({ height: imHeight, width: imWidth }: { height: number; width: number }) => {
                                 const key = `${taskID}_${frame}`;
 
                                 if (result) {
-                                    // PERF: measure base64 → Float32Array → Tensor
-                                    console.time(L.b64);
+                                    console.log('[1] Decoding base64 blob for batched embeddings');
                                     const bin = window.atob(result.blob);
                                     const uint8Array = new Uint8Array(bin.length);
                                     for (let i = 0; i < bin.length; i++) {
                                         uint8Array[i] = bin.charCodeAt(i);
                                     }
                                     const float32Arr = new Float32Array(uint8Array.buffer);
-                                    plugin.data.embeddings.set(key, new Tensor('float32', float32Arr, [1, 256, 64, 64]));
-                                    console.timeEnd(L.b64);
+                                    console.log('[2] Batch embeddings shape: (9, 256, 64, 64), total elements:', float32Arr.length);
+                                    plugin.data.embeddings.set(key, new Tensor('float32', float32Arr, [9, 256, 64, 64]));
                                 }
 
                                 const modelScale = {
@@ -251,37 +238,109 @@ const samPlugin: SAMPlugin = {
                                     clicks.push({ clickType: 2, x: obj_bbox[0][0], y: obj_bbox[0][1] });
                                     clicks.push({ clickType: 3, x: obj_bbox[1][0], y: obj_bbox[1][1] });
                                 }
-                                pos_points.forEach((point) => clicks.push({ clickType: 1, x: point[0], y: point[1] }));
-                                neg_points.forEach((point) => clicks.push({ clickType: 0, x: point[0], y: point[1] }));
 
-                                const isLowResMaskSuitable = JSON.stringify(clicks.slice(0, -1)) ===
-                                    JSON.stringify(plugin.data.lastClicks);
-
-                                // PERF: measure feeds creation
-                                console.time(L.feeds);
-                                const feeds = modelData({
-                                    clicks,
-                                    tensor: plugin.data.embeddings.get(key) as Tensor,
-                                    modelScale,
-                                    maskInput: isLowResMaskSuitable ? plugin.data.lowResMasks.get(key) || null : null,
+                                pos_points.forEach((point) => {
+                                    clicks.push({ clickType: 1, x: point[0], y: point[1] });
                                 });
-                                console.timeEnd(L.feeds);
+
+                                neg_points.forEach((point) => {
+                                    clicks.push({ clickType: 0, x: point[0], y: point[1] });
+                                });
+
+                                const isLowResMaskSuitable = JSON
+                                    .stringify(clicks.slice(0, -1)) === JSON.stringify(plugin.data.lastClicks);
+
+                                // Select patch based on click position
+                                const patchSize = 1024;
+                                const firstClick = clicks.find(c => c.clickType === 1 || c.clickType === 2) || clicks[0];
+
+                                // If bbox is active, use its center to select the patch
+                                const bboxActive = obj_bbox.length > 0;
+                                let clickX = firstClick.x;
+                                let clickY = firstClick.y;
+
+                                if(bboxActive) {
+                                    clickX = (obj_bbox[0][0] + obj_bbox[1][0]) / 2;
+                                    clickY = (obj_bbox[0][1] + obj_bbox[1][1]) / 2;
+                                }
+
+                                const centerX = (imWidth - patchSize) / 2;
+                                const centerY = (imHeight - patchSize) / 2;
+                                const rightX = imWidth - patchSize;
+                                const bottomY = imHeight - patchSize;
+
+                                let patchIndex = 4; // default center
+                                let patchOffsetX = centerX;
+                                let patchOffsetY = centerY;
+
+                                if (clickY < centerY) { // Top row
+                                    patchOffsetY = 0;
+                                    if (clickX < centerX) { patchIndex = 0; patchOffsetX = 0; }
+                                    else if (clickX < rightX) { patchIndex = 1; patchOffsetX = centerX; }
+                                    else { patchIndex = 2; patchOffsetX = rightX; }
+                                } else if (clickY < bottomY) { // Middle row
+                                    patchOffsetY = centerY;
+                                    if (clickX < centerX) { patchIndex = 3; patchOffsetX = 0; }
+                                    else if (clickX < rightX) { patchIndex = 4; patchOffsetX = centerX; }
+                                    else { patchIndex = 5; patchOffsetX = rightX; }
+                                } else { // Bottom row
+                                    patchOffsetY = bottomY;
+                                    if (clickX < centerX) { patchIndex = 6; patchOffsetX = 0; }
+                                    else if (clickX < rightX) { patchIndex = 7; patchOffsetX = centerX; }
+                                    else { patchIndex = 8; patchOffsetX = rightX; }
+                                }
+
+                                console.log(`[3] Click at (${clickX}, ${clickY}), image (${imWidth}, ${imHeight})`);
+                                console.log(`[4] Selected patch ${patchIndex}, offset (${patchOffsetX}, ${patchOffsetY})`);
+
+                                // Extract single patch embedding
+                                const batchTensor = plugin.data.embeddings.get(key) as Tensor;
+                                const embeddingSize = 256 * 64 * 64;
+                                const patchData = (batchTensor.data as Float32Array).slice(
+                                    patchIndex * embeddingSize,
+                                    (patchIndex + 1) * embeddingSize
+                                );
+                                const patchTensor = new Tensor('float32', patchData, [1, 256, 64, 64]);
+                                console.log('[5] Extracted patch tensor shape: (1, 256, 64, 64)');
+
+                                // Adjust clicks to patch coordinate space and clamp to patch bounds
+                                const patchClicks = clicks.map(c => ({
+                                    ...c,
+                                    x: Math.max(0, Math.min(patchSize - 1, c.x - patchOffsetX)),
+                                    y: Math.max(0, Math.min(patchSize - 1, c.y - patchOffsetY))
+                                }));
+                                console.log('[6] Adjusted clicks to patch space:', patchClicks);
+
+                                const feeds = modelData({
+                                    clicks: patchClicks,
+                                    tensor: patchTensor,
+                                    modelScale: {
+                                        width: patchSize,
+                                        height: patchSize,
+                                        scale: getModelScale(patchSize, patchSize),
+                                    },
+                                    maskInput: null, // Don't use low res masks for now
+                                });
 
                                 function toMatImage(input: number[], width: number, height: number): number[][] {
-                                    const image = Array(height).fill(0).map(() => Array(width).fill(0));
+                                    const image = Array(height).fill(0);
+                                    for (let i = 0; i < image.length; i++) {
+                                        image[i] = Array(width).fill(0);
+                                    }
+
                                     for (let i = 0; i < input.length; i++) {
                                         const row = Math.floor(i / width);
                                         const col = i % width;
                                         image[row][col] = input[i] > 0 ? 255 : 0;
                                     }
+
                                     return image;
                                 }
+
                                 function onnxToImage(input: any, width: number, height: number): number[][] {
                                     return toMatImage(input, width, height);
                                 }
 
-                                // PERF: measure worker decode time (end in onmessage)
-                                console.time(L.worker);
                                 plugin.data.worker.postMessage({
                                     action: WorkerAction.DECODE,
                                     payload: feeds,
@@ -290,45 +349,38 @@ const samPlugin: SAMPlugin = {
                                 plugin.data.worker.onmessage = ((e) => {
                                     if (e.data.action !== WorkerAction.DECODE) {
                                         const error = 'Caught unexpected action response from worker: ' +
-                                            `${e.data.action}, while "${WorkerAction.DECODE}" was expected`;
-                                        console.timeEnd(L.worker);
-                                        console.timeEnd(L.total);
+                                                `${e.data.action}, while "${WorkerAction.DECODE}" was expected`;
                                         reject(new Error(error));
-                                        return;
                                     }
 
                                     if (!e.data.error) {
                                         const {
-                                            masks, lowResMasks, xtl, ytl, xbr, ybr, decodeMs,
+                                            masks, lowResMasks, xtl, ytl, xbr, ybr,
                                         } = e.data.payload;
-
-                                        if (typeof decodeMs === 'number') {
-                                            // Worker-side runtime for ONNX decoder
-                                            // eslint-disable-next-line no-console
-                                            console.log(`[SAM][worker] onnx decode ${decodeMs.toFixed(1)} ms`);
-                                        }
-
                                         const imageData = onnxToImage(masks.data, masks.dims[3], masks.dims[2]);
                                         plugin.data.lowResMasks.set(key, lowResMasks);
                                         plugin.data.lastClicks = clicks;
 
-                                        console.timeEnd(L.worker);
-                                        console.timeEnd(L.total);
+                                        console.log('[7] Mask bounds in patch space:', [xtl, ytl, xbr, ybr]);
+
+                                        // Translate mask bounds from patch space to image space
+                                        const translatedXtl = xtl + patchOffsetX;
+                                        const translatedYtl = ytl + patchOffsetY;
+                                        const translatedXbr = xbr + patchOffsetX;
+                                        const translatedYbr = ybr + patchOffsetY;
+
+                                        console.log('[8] Mask bounds in image space:', [translatedXtl, translatedYtl, translatedXbr, translatedYbr]);
 
                                         resolve({
                                             mask: imageData,
-                                            bounds: [xtl, ytl, xbr, ybr],
+                                            bounds: [translatedXtl, translatedYtl, translatedXbr, translatedYbr],
                                         });
                                     } else {
-                                        console.timeEnd(L.worker);
-                                        console.timeEnd(L.total);
                                         reject(new Error(`Decoder error. ${e.data.error}`));
                                     }
                                 });
 
                                 plugin.data.worker.onerror = ((error) => {
-                                    console.timeEnd(L.worker);
-                                    console.timeEnd(L.total);
                                     reject(error);
                                 });
                             });
@@ -342,7 +394,7 @@ const samPlugin: SAMPlugin = {
         core: null,
         worker: new Worker(new URL('./inference.worker', import.meta.url)),
         jobs: {},
-        modelID: 'pth-facebookresearch-sam-vit-h',
+        modelID: 'pth-facebookresearch-sam-batched-vit-h',
         modelURL: '/assets/decoder.onnx',
         embeddings: new LRUCache({
             // float32 tensor [256, 64, 64] is 4 MB, max 128 MB
