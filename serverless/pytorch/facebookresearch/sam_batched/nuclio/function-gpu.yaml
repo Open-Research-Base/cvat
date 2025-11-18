@@ -6,7 +6,7 @@ metadata:
   name: pth-facebookresearch-sam-batched-vit-h
   namespace: cvat
   annotations:
-    name: Segment Anything BM
+    name: Segment Anything Batch Mode
     version: 2
     type: interactor
     spec:
@@ -14,10 +14,10 @@ metadata:
     min_neg_points: 0
     startswith_box_optional: true
     animated_gif: https://raw.githubusercontent.com/cvat-ai/cvat/develop/site/content/en/images/hrnet_example.gif
-    help_message: The interactor allows to get a mask of an object using at least one positive, and any negative points inside it (Batch Mode)
+    help_message: The interactor allows to get a mask of an object using at least one positive, and any negative points inside it. The Batch Mode divides the image into 9 overapping pathches each of size 1024 to enhance mask quality.
 
 spec:
-  description: Interactive object segmentation with Segment-Anything BM
+  description: Interactive object segmentation with Segment-Anything Batch Mode
   runtime: 'python:3.10'
   handler: main:handler
   eventTimeout: 30s

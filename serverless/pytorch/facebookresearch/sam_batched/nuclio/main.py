@@ -26,7 +26,6 @@ def handler(context, event):
     image = np.array(image)
 
     # Extract image patches to compose a batch
-    print("Extracting 9 patches from the image for batch processing...")
     height, width = image.shape[:2]
     patch_size = 1024
 
@@ -51,10 +50,6 @@ def handler(context, event):
     positions['bottom_center'] = (bottom_y, center_x)
     positions['bottom_right'] = (bottom_y, right_x)
 
-    print(f"Patch positions (y, x) for {patch_size}x{patch_size} patches:")
-    for name, pos in positions.items():
-        print(f"  {name:15s}: {pos}")
-
     # Create batch of patches
     batch = []
     for name, (y, x) in positions.items():
@@ -63,41 +58,22 @@ def handler(context, event):
     batch = np.stack(batch, axis=0)
 
     # Feed batch to the encoder model to retrieve the features
-    print("handle")
     features = context.user_data.model.handle_batch(batch)
-
-    # features = context.user_data.model.handle(image)
-
-    # Debug: Print feature info
-    print(f"Features shape: {features.shape}")
-    print(f"Features dtype: {features.dtype}")
-    print(f"Features device: {features.device}")
-    print(f"Features is_cuda: {features.is_cuda}")
 
     # Convert features to numpy
     features_numpy = features.cpu().numpy() if features.is_cuda else features.numpy()
-    print(f"Features numpy shape: {features_numpy.shape}")
-    print(f"Features numpy dtype: {features_numpy.dtype}")
 
     # Encode to base64
     features_encoded = base64.b64encode(features_numpy).decode()
-    print(f"Base64 encoded length: {len(features_encoded)}")
 
     # Create response body
     response_data = {'blob': features_encoded}
-    print(f"Response data keys: {response_data.keys()}")
-    print(f"Response data blob type: {type(response_data['blob'])}")
 
     # Convert to JSON
-    try:
-        response_body = json.dumps(response_data)
-        print(f"JSON dumps successful, length: {len(response_body)}")
-    except Exception as e:
-        print(f"JSON dumps failed: {e}")
-        raise
+    response_body = json.dumps(response_data)
 
     end = time.perf_counter()
-    print(f"Total processing time: {end - start:.2f} seconds")
+    context.logger.info(f"Total processing time: {end - start:.2f} seconds")
 
     return context.Response(body=response_body,
         headers={},
