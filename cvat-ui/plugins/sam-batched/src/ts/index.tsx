@@ -216,14 +216,14 @@ const samPlugin: SAMPlugin = {
                                 const key = `${taskID}_${frame}`;
 
                                 if (result) {
-                                    console.log('[1] Decoding base64 blob for batched embeddings');
+                                    // console.log('[1] Decoding base64 blob for batched embeddings');
                                     const bin = window.atob(result.blob);
                                     const uint8Array = new Uint8Array(bin.length);
                                     for (let i = 0; i < bin.length; i++) {
                                         uint8Array[i] = bin.charCodeAt(i);
                                     }
                                     const float32Arr = new Float32Array(uint8Array.buffer);
-                                    console.log('[2] Batch embeddings shape: (9, 256, 64, 64), total elements:', float32Arr.length);
+                                    // console.log('[2] Batch embeddings shape: (9, 256, 64, 64), total elements:', float32Arr.length);
                                     plugin.data.embeddings.set(key, new Tensor('float32', float32Arr, [9, 256, 64, 64]));
                                 }
 
@@ -252,46 +252,113 @@ const samPlugin: SAMPlugin = {
 
                                 // Select patch based on click position
                                 const patchSize = 1024;
-                                const firstClick = clicks.find(c => c.clickType === 1 || c.clickType === 2) || clicks[0];
-
-                                // If bbox is active, use its center to select the patch
                                 const bboxActive = obj_bbox.length > 0;
-                                let clickX = firstClick.x;
-                                let clickY = firstClick.y;
 
-                                if(bboxActive) {
+                                let clickX: number;
+                                let clickY: number;
+
+                                if (bboxActive) {
+                                    // Use bbox center
                                     clickX = (obj_bbox[0][0] + obj_bbox[1][0]) / 2;
                                     clickY = (obj_bbox[0][1] + obj_bbox[1][1]) / 2;
+                                } else {
+                                    // Use mean position of all clicks
+                                    clickX = clicks.reduce((sum, c) => sum + c.x, 0) / clicks.length;
+                                    clickY = clicks.reduce((sum, c) => sum + c.y, 0) / clicks.length;
                                 }
 
-                                const centerX = (imWidth - patchSize) / 2;
+                                // Calculate patch positions (top-left corners)
+                                const topY = 0;
                                 const centerY = (imHeight - patchSize) / 2;
-                                const rightX = imWidth - patchSize;
                                 const bottomY = imHeight - patchSize;
+                                const leftX = 0;
+                                const centerX = (imWidth - patchSize) / 2;
+                                const rightX = imWidth - patchSize;
+
+                                // Define 9 patches with their top-left positions
+                                const patches = [
+                                    { index: 0, x: leftX, y: topY },     // top_left
+                                    { index: 1, x: centerX, y: topY },   // top_center
+                                    { index: 2, x: rightX, y: topY },    // top_right
+                                    { index: 3, x: leftX, y: centerY },  // left_center
+                                    { index: 4, x: centerX, y: centerY },// center
+                                    { index: 5, x: rightX, y: centerY }, // right_center
+                                    { index: 6, x: leftX, y: bottomY },  // bottom_left
+                                    { index: 7, x: centerX, y: bottomY },// bottom_center
+                                    { index: 8, x: rightX, y: bottomY }, // bottom_right
+                                ];
 
                                 let patchIndex = 4; // default center
                                 let patchOffsetX = centerX;
                                 let patchOffsetY = centerY;
 
-                                if (clickY < centerY) { // Top row
-                                    patchOffsetY = 0;
-                                    if (clickX < centerX) { patchIndex = 0; patchOffsetX = 0; }
-                                    else if (clickX < rightX) { patchIndex = 1; patchOffsetX = centerX; }
-                                    else { patchIndex = 2; patchOffsetX = rightX; }
-                                } else if (clickY < bottomY) { // Middle row
-                                    patchOffsetY = centerY;
-                                    if (clickX < centerX) { patchIndex = 3; patchOffsetX = 0; }
-                                    else if (clickX < rightX) { patchIndex = 4; patchOffsetX = centerX; }
-                                    else { patchIndex = 5; patchOffsetX = rightX; }
-                                } else { // Bottom row
-                                    patchOffsetY = bottomY;
-                                    if (clickX < centerX) { patchIndex = 6; patchOffsetX = 0; }
-                                    else if (clickX < rightX) { patchIndex = 7; patchOffsetX = centerX; }
-                                    else { patchIndex = 8; patchOffsetX = rightX; }
-                                }
+                                if (bboxActive) {
+                                    // Use IoU to select patch
+                                    const bboxXtl = obj_bbox[0][0];
+                                    const bboxYtl = obj_bbox[0][1];
+                                    const bboxXbr = obj_bbox[1][0];
+                                    const bboxYbr = obj_bbox[1][1];
 
-                                console.log(`[3] Click at (${clickX}, ${clickY}), image (${imWidth}, ${imHeight})`);
-                                console.log(`[4] Selected patch ${patchIndex}, offset (${patchOffsetX}, ${patchOffsetY})`);
+                                    // console.log(`[3] BBox: [(${bboxXtl.toFixed(1)}, ${bboxYtl.toFixed(1)}), (${bboxXbr.toFixed(1)}, ${bboxYbr.toFixed(1)})], image (${imWidth}, ${imHeight})`);
+
+                                    let maxIoU = 0;
+
+                                    patches.forEach(patch => {
+                                        const patchXtl = patch.x;
+                                        const patchYtl = patch.y;
+                                        const patchXbr = patch.x + patchSize;
+                                        const patchYbr = patch.y + patchSize;
+
+                                        // Calculate intersection
+                                        const intersectXtl = Math.max(bboxXtl, patchXtl);
+                                        const intersectYtl = Math.max(bboxYtl, patchYtl);
+                                        const intersectXbr = Math.min(bboxXbr, patchXbr);
+                                        const intersectYbr = Math.min(bboxYbr, patchYbr);
+
+                                        const intersectWidth = Math.max(0, intersectXbr - intersectXtl);
+                                        const intersectHeight = Math.max(0, intersectYbr - intersectYtl);
+                                        const intersectArea = intersectWidth * intersectHeight;
+
+                                        // Calculate union
+                                        const bboxArea = (bboxXbr - bboxXtl) * (bboxYbr - bboxYtl);
+                                        const patchArea = patchSize * patchSize;
+                                        const unionArea = bboxArea + patchArea - intersectArea;
+
+                                        const iou = unionArea > 0 ? intersectArea / unionArea : 0;
+
+                                        if (iou > maxIoU) {
+                                            maxIoU = iou;
+                                            patchIndex = patch.index;
+                                            patchOffsetX = patch.x;
+                                            patchOffsetY = patch.y;
+                                        }
+                                    });
+
+                                    // console.log(`[4] Selected patch ${patchIndex} (IoU: ${maxIoU.toFixed(4)}), offset: (${patchOffsetX}, ${patchOffsetY})`);
+                                } else {
+                                    // Use distance to select patch
+                                    // console.log(`[3] Click at (${clickX.toFixed(1)}, ${clickY.toFixed(1)}), image (${imWidth}, ${imHeight})`);
+
+                                    let minDistance = Infinity;
+
+                                    patches.forEach(patch => {
+                                        const patchCenterX = patch.x + patchSize / 2;
+                                        const patchCenterY = patch.y + patchSize / 2;
+                                        const distance = Math.sqrt(
+                                            Math.pow(clickX - patchCenterX, 2) +
+                                            Math.pow(clickY - patchCenterY, 2)
+                                        );
+
+                                        if (distance < minDistance) {
+                                            minDistance = distance;
+                                            patchIndex = patch.index;
+                                            patchOffsetX = patch.x;
+                                            patchOffsetY = patch.y;
+                                        }
+                                    });
+
+                                    // console.log(`[4] Selected patch ${patchIndex} (distance: ${minDistance.toFixed(2)}px), offset: (${patchOffsetX}, ${patchOffsetY})`);
+                                }
 
                                 // Extract single patch embedding
                                 const batchTensor = plugin.data.embeddings.get(key) as Tensor;
@@ -301,7 +368,7 @@ const samPlugin: SAMPlugin = {
                                     (patchIndex + 1) * embeddingSize
                                 );
                                 const patchTensor = new Tensor('float32', patchData, [1, 256, 64, 64]);
-                                console.log('[5] Extracted patch tensor shape: (1, 256, 64, 64)');
+                                // console.log('[5] Extracted patch tensor shape: (1, 256, 64, 64)');
 
                                 // Adjust clicks to patch coordinate space and clamp to patch bounds
                                 const patchClicks = clicks.map(c => ({
@@ -309,7 +376,7 @@ const samPlugin: SAMPlugin = {
                                     x: Math.max(0, Math.min(patchSize - 1, c.x - patchOffsetX)),
                                     y: Math.max(0, Math.min(patchSize - 1, c.y - patchOffsetY))
                                 }));
-                                console.log('[6] Adjusted clicks to patch space:', patchClicks);
+                                // console.log('[6] Adjusted clicks to patch space:', patchClicks);
 
                                 const feeds = modelData({
                                     clicks: patchClicks,
@@ -361,7 +428,7 @@ const samPlugin: SAMPlugin = {
                                         plugin.data.lowResMasks.set(key, lowResMasks);
                                         plugin.data.lastClicks = clicks;
 
-                                        console.log('[7] Mask bounds in patch space:', [xtl, ytl, xbr, ybr]);
+                                        // console.log('[7] Mask bounds in patch space:', [xtl, ytl, xbr, ybr]);
 
                                         // Translate mask bounds from patch space to image space
                                         const translatedXtl = xtl + patchOffsetX;
@@ -369,7 +436,7 @@ const samPlugin: SAMPlugin = {
                                         const translatedXbr = xbr + patchOffsetX;
                                         const translatedYbr = ybr + patchOffsetY;
 
-                                        console.log('[8] Mask bounds in image space:', [translatedXtl, translatedYtl, translatedXbr, translatedYbr]);
+                                        // console.log('[8] Mask bounds in image space:', [translatedXtl, translatedYtl, translatedXbr, translatedYbr]);
 
                                         resolve({
                                             mask: imageData,
