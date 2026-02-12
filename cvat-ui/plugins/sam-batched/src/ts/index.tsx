@@ -111,8 +111,8 @@ function modelData(
 }
 
 const samPlugin: SAMPlugin = {
-    name: 'Segment Anything',
-    description: 'Handles non-default SAM serverless function output',
+    name: 'Segment Anything Batch Mode',
+    description: 'Handles batched SAM serverless function output',
     cvat: {
         jobs: {
             get: {
